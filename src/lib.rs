@@ -92,6 +92,8 @@
 //! ```
 //!
 
+use hyper::client::connect::dns::GaiResolver;
+use hyper::client::HttpConnector;
 use hyper::header::{HeaderMap, HeaderValue};
 use hyper::http::header::{InvalidHeaderValue, ToStrError};
 use hyper::http::uri::InvalidUri;
@@ -127,6 +129,20 @@ impl From<ToStrError> for ProxyError {
 impl From<InvalidHeaderValue> for ProxyError {
     fn from(_err: InvalidHeaderValue) -> ProxyError {
         ProxyError::ForwardHeaderError
+    }
+}
+
+cfg_if::cfg_if! {
+    if #[cfg(feature = "https")] {
+        fn build_client() -> Client<hyper_tls::HttpsConnector<HttpConnector<GaiResolver>>, hyper::Body> {
+            // 4 is number of blocking DNS threads
+            let https = hyper_tls::HttpsConnector::new();
+            Client::builder().build::<_, hyper::Body>(https)
+        }
+    } else {
+        fn build_client() -> Client<HttpConnector<GaiResolver>, hyper::Body> {
+            Client::new()
+        }
     }
 }
 
@@ -211,7 +227,7 @@ pub async fn call(
 ) -> Result<Response<Body>, ProxyError> {
     let proxied_request = create_proxied_request(client_ip, &forward_uri, request)?;
 
-    let client = Client::new();
+    let client = build_client();
     let response = client.request(proxied_request).await?;
     let proxied_response = create_proxied_response(response);
     Ok(proxied_response)
